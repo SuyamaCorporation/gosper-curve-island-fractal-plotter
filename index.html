@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gosper Curve Island Space-Filling Fractal Plotter</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col items-center p-4">
+  <h1 class="text-2xl font-bold mb-1 text-indigo-300">Gosper Curve Island — Space-Filling Fractal Plotter</h1>
+  <p class="text-gray-400 text-sm mb-4">L-system flowsnake with gradient coloring and step-by-step animation</p>
+
+  <div class="flex flex-col lg:flex-row gap-6 w-full max-w-6xl">
+    <!-- Canvas -->
+    <div class="flex-1 flex justify-center">
+      <canvas id="canvas" width="600" height="600"
+        class="rounded-xl border border-indigo-700 bg-black"
+        aria-label="Gosper curve fractal canvas"></canvas>
+    </div>
+
+    <!-- Controls -->
+    <div class="lg:w-64 flex flex-col gap-4">
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-700">
+        <h2 class="text-indigo-400 font-semibold mb-3">Parameters</h2>
+
+        <label class="block text-sm mb-1" for="orderSlider">
+          Order: <span id="orderVal" class="font-bold text-indigo-300">3</span>
+        </label>
+        <input id="orderSlider" type="range" min="1" max="5" value="3"
+          class="w-full accent-indigo-500" aria-label="Recursion order 1 to 5" />
+
+        <label class="block text-sm mt-3 mb-1" for="rotateSlider">
+          Rotation: <span id="rotateVal" class="font-bold text-indigo-300">0°</span>
+        </label>
+        <input id="rotateSlider" type="range" min="0" max="360" value="0"
+          class="w-full accent-indigo-500" aria-label="View rotation 0 to 360 degrees" />
+      </div>
+
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-700">
+        <h2 class="text-indigo-400 font-semibold mb-3">Animation</h2>
+        <button id="animBtn"
+          class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 rounded-lg transition"
+          aria-label="Play step-by-step construction animation">
+          ▶ Animate
+        </button>
+        <div class="mt-2 text-xs text-gray-400">
+          Progress: <span id="progressTxt">—</span>
+        </div>
+      </div>
+
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-700">
+        <h2 class="text-indigo-400 font-semibold mb-3">Gradient</h2>
+        <div class="flex items-center gap-2 text-xs">
+          <span class="inline-block w-4 h-4 rounded" style="background:#2563eb"></span>
+          <span>Start (blue)</span>
+          <span class="ml-auto inline-block w-4 h-4 rounded" style="background:#dc2626"></span>
+          <span>End (red)</span>
+        </div>
+      </div>
+
+      <button id="downloadBtn"
+        class="w-full bg-green-700 hover:bg-green-600 text-white font-semibold py-2 rounded-lg transition"
+        aria-label="Download fractal as PNG">
+        ⬇ Download PNG
+      </button>
+
+      <div class="bg-gray-900 rounded-xl p-3 border border-gray-700 text-xs text-gray-400">
+        <p class="font-semibold text-gray-300 mb-1">L-system Rules</p>
+        <p>Axiom: <code class="text-yellow-300">A</code></p>
+        <p>A → <code class="text-yellow-300">A-B--B+A++AA+B-</code></p>
+        <p>B → <code class="text-yellow-300">+A-BB--B-A++A+B</code></p>
+        <p class="mt-1">Angle: 60°</p>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function() {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const orderSlider = document.getElementById('orderSlider');
+  const orderVal = document.getElementById('orderVal');
+  const rotateSlider = document.getElementById('rotateSlider');
+  const rotateVal = document.getElementById('rotateVal');
+  const animBtn = document.getElementById('animBtn');
+  const progressTxt = document.getElementById('progressTxt');
+  const downloadBtn = document.getElementById('downloadBtn');
+
+  let animating = false;
+  let animFrame = null;
+  let currentSegments = [];
+
+  // L-system expansion
+  function expandLSystem(order) {
+    let s = 'A';
+    const rules = { 'A': 'A-B--B+A++AA+B-', 'B': '+A-BB--B-A++A+B' };
+    for (let i = 0; i < order; i++) {
+      let next = '';
+      for (const c of s) next += rules[c] || c;
+      s = next;
+    }
+    return s;
+  }
+
+  // Convert L-system string to array of segments
+  function buildSegments(str, stepLen, startAngle) {
+    const angle60 = Math.PI / 3;
+    let x = 0, y = 0, angle = startAngle;
+    const segments = [];
+    for (const c of str) {
+      if (c === 'A' || c === 'B') {
+        const nx = x + stepLen * Math.cos(angle);
+        const ny = y + stepLen * Math.sin(angle);
+        segments.push({ x1: x, y1: y, x2: nx, y2: ny });
+        x = nx; y = ny;
+      } else if (c === '+') {
+        angle += angle60;
+      } else if (c === '-') {
+        angle -= angle60;
+      }
+    }
+    return segments;
+  }
+
+  function getColor(t) {
+    // blue (0,0,1) → cyan (0,1,1) → green (0,1,0) → yellow (1,1,0) → red (1,0,0)
+    const r = Math.round(Math.max(0, Math.min(255, 510 * t - 255 + (t < 0.5 ? 0 : 0))));
+    const g = Math.round(t < 0.5 ? 510 * t : 510 * (1 - t));
+    const b = Math.round(Math.max(0, 255 - 510 * t));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function render(drawCount) {
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    if (currentSegments.length === 0) return;
+
+    const segs = currentSegments;
+    const count = drawCount !== undefined ? Math.min(drawCount, segs.length) : segs.length;
+
+    // Compute bounding box of all segments
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const s of segs) {
+      minX = Math.min(minX, s.x1, s.x2);
+      minY = Math.min(minY, s.y1, s.y2);
+      maxX = Math.max(maxX, s.x1, s.x2);
+      maxY = Math.max(maxY, s.y1, s.y2);
+    }
+
+    const padding = 40;
+    const scaleX = (W - padding * 2) / (maxX - minX || 1);
+    const scaleY = (H - padding * 2) / (maxY - minY || 1);
+    const scale = Math.min(scaleX, scaleY);
+    const offX = (W - (maxX - minX) * scale) / 2 - minX * scale;
+    const offY = (H - (maxY - minY) * scale) / 2 - minY * scale;
+
+    ctx.lineWidth = Math.max(0.5, 2 / Math.sqrt(segs.length / 10));
+    ctx.lineCap = 'round';
+
+    for (let i = 0; i < count; i++) {
+      const s = segs[i];
+      const t = segs.length > 1 ? i / (segs.length - 1) : 0;
+      ctx.strokeStyle = getColor(t);
+      ctx.beginPath();
+      ctx.moveTo(s.x1 * scale + offX, s.y1 * scale + offY);
+      ctx.lineTo(s.x2 * scale + offX, s.y2 * scale + offY);
+      ctx.stroke();
+    }
+
+    if (drawCount !== undefined) {
+      const pct = Math.round(count / segs.length * 100);
+      progressTxt.textContent = `${count} / ${segs.length} (${pct}%)`;
+    } else {
+      progressTxt.textContent = `${segs.length} segments`;
+    }
+  }
+
+  function rebuild() {
+    const order = parseInt(orderSlider.value);
+    const rotDeg = parseInt(rotateSlider.value);
+    const rotRad = rotDeg * Math.PI / 180;
+    const str = expandLSystem(order);
+    currentSegments = buildSegments(str, 10, rotRad);
+    render();
+  }
+
+  orderSlider.addEventListener('input', () => {
+    orderVal.textContent = orderSlider.value;
+    stopAnim();
+    rebuild();
+  });
+  rotateSlider.addEventListener('input', () => {
+    rotateVal.textContent = rotateSlider.value + '°';
+    stopAnim();
+    rebuild();
+  });
+
+  function stopAnim() {
+    if (animFrame) cancelAnimationFrame(animFrame);
+    animating = false;
+    animBtn.textContent = '▶ Animate';
+  }
+
+  animBtn.addEventListener('click', () => {
+    if (animating) {
+      stopAnim();
+      render();
+      return;
+    }
+    animating = true;
+    animBtn.textContent = '⏹ Stop';
+    const total = currentSegments.length;
+    let drawn = 0;
+    const step = Math.max(1, Math.floor(total / 200));
+
+    function frame() {
+      if (!animating) return;
+      drawn = Math.min(drawn + step, total);
+      render(drawn);
+      if (drawn < total) {
+        animFrame = requestAnimationFrame(frame);
+      } else {
+        stopAnim();
+        render();
+      }
+    }
+    animFrame = requestAnimationFrame(frame);
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    const link = document.createElement('a');
+    link.download = `gosper-curve-order${orderSlider.value}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+
+  // Initial render
+  rebuild();
+})();
+</script>
+</body>
+</html>
